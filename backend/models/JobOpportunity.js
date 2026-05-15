@@ -36,10 +36,47 @@ const JobOpportunitySchema = new mongoose.Schema({
     suspicious: { type: Boolean, default: false },
     lowQuality: { type: Boolean, default: false },
   },
+  contacts: {
+    type: [{
+      email: { type: String, trim: true, lowercase: true, required: true },
+      firstName: { type: String, trim: true, default: "" },
+      lastName: { type: String, trim: true, default: "" },
+      fullName: { type: String, trim: true, default: "" },
+      position: { type: String, trim: true, default: "" },
+      department: { type: String, trim: true, default: "" },
+      seniority: { type: String, trim: true, default: "" },
+      type: { type: String, trim: true, default: "" },
+      confidence: { type: Number, min: 0, max: 100, default: 0 },
+      phoneNumber: { type: String, trim: true, default: "" },
+      linkedinUrl: { type: String, trim: true, default: "" },
+      source: {
+        type: String,
+        enum: ["hunter", "apollo", "job_api", "manual"],
+        default: "hunter",
+      },
+      selectionReason: { type: String, trim: true, default: "" },
+      discoveredAt: { type: Date, default: Date.now },
+      raw: { type: mongoose.Schema.Types.Mixed, default: {} },
+    }],
+    default: [],
+  },
+  emailDiscovery: {
+    status: {
+      type: String,
+      enum: ["NOT_STARTED", "RUNNING", "FOUND", "NOT_FOUND", "FAILED"],
+      default: "NOT_STARTED",
+      index: true,
+    },
+    source: { type: String, trim: true, default: "" },
+    domain: { type: String, trim: true, lowercase: true, default: "" },
+    lastCheckedAt: { type: Date, default: null },
+    error: { type: String, trim: true, default: "" },
+  },
   raw: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
 JobOpportunitySchema.index({ source: 1, externalId: 1 }, { unique: true });
 JobOpportunitySchema.index({ title: "text", description: "text", companyName: "text" });
+JobOpportunitySchema.index({ "contacts.email": 1 });
 
 module.exports = mongoose.model("JobOpportunity", JobOpportunitySchema);

@@ -138,6 +138,42 @@ If `N8N_SHARED_SECRET` is empty, signature verification is disabled for local de
 }
 ```
 
+### Email Discovery
+
+```json
+{
+  "type": "EMAIL_DISCOVERY_RESULT",
+  "agentRunId": "...",
+  "userId": "...",
+  "resumeId": "...",
+  "status": "COMPLETED",
+  "progress": 100,
+  "currentStep": "Recruiter emails discovered",
+  "discoveries": [
+    {
+      "jobMatchId": "...",
+      "jobId": "...",
+      "domain": "company.com",
+      "source": "hunter",
+      "contacts": [
+        {
+          "email": "recruiter@company.com",
+          "firstName": "Jane",
+          "lastName": "Doe",
+          "position": "Talent Acquisition",
+          "department": "hr",
+          "seniority": "senior",
+          "type": "personal",
+          "confidence": 92,
+          "linkedinUrl": "https://linkedin.com/in/...",
+          "source": "hunter"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### Gmail Sending or Monitoring Status
 
 ```json
@@ -159,7 +195,7 @@ If `N8N_SHARED_SECRET` is empty, signature verification is disabled for local de
 1. Resume Upload: parse, analyze, extract geo profile, call back `RESUME_ANALYSIS_RESULT`.
 2. Market Analysis: query the JSearch API, generate structured intelligence with Gemini.
 3. Job Matching: rank jobs, remove duplicates/expired/suspicious offers, save high-quality matches.
-4. Email Discovery: use recruiter fields or Hunter/Apollo APIs only.
+4. Email Discovery: use recruiter fields or Hunter/Apollo APIs only, then store contacts on the matched `JobOpportunity`.
 5. Application Generation: generate factual email and cover letter, call back `APPLICATION_DRAFT_RESULT`.
 6. Email Sending: triggered only after user approval, send through Gmail API.
 7. Gmail Monitoring: Gmail API watch/poll fallback, classify replies.

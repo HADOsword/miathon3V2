@@ -34,6 +34,7 @@ const {
 const {
   getRecruitmentDashboard,
   startWorkflow,
+  discoverMatchedJobEmails,
   receiveN8nEvent,
   listApplications,
   decideApplication,
@@ -92,6 +93,10 @@ router
 router
   .route("/recruitment/workflows")
   .post(authMiddleware, startWorkflow);
+
+router
+  .route("/recruitment/email-discovery")
+  .post(authMiddleware, discoverMatchedJobEmails);
 
 router
   .route("/recruitment/chat")

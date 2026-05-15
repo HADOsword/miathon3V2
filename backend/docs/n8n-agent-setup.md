@@ -356,7 +356,90 @@ Callback type:
 JOB_MATCHES_RESULT
 ```
 
-## Workflow 4: Application Generation
+Then trigger Workflow 4.
+
+## Workflow 4: Email Discovery
+
+Webhook path:
+
+```txt
+recruitment/email-discovery
+```
+
+Input from the backend after job matching:
+
+```json
+{
+  "userId": "...",
+  "resumeId": "...",
+  "agentRunId": "...",
+  "matches": [
+    {
+      "jobMatchId": "...",
+      "jobId": "...",
+      "companyName": "Company",
+      "companyDomain": "company.com",
+      "companyWebsite": "https://company.com",
+      "title": "Backend Developer"
+    }
+  ]
+}
+```
+
+For each match, choose the domain in this order:
+
+```txt
+companyDomain
+domain from companyWebsite
+```
+
+Do not use job-board domains like linkedin.com, indeed.com, glassdoor.com, or workable.com.
+
+Hunter HTTP Request:
+
+```txt
+Method: GET
+URL: https://api.hunter.io/v2/domain-search
+Query:
+  domain = {{$json.companyDomain}}
+  api_key = YOUR_HUNTER_API_KEY
+  limit = 10
+```
+
+Backend callback body:
+
+```json
+{
+  "type": "EMAIL_DISCOVERY_RESULT",
+  "agentRunId": "={{$json.agentRunId}}",
+  "userId": "={{$json.userId}}",
+  "resumeId": "={{$json.resumeId}}",
+  "status": "COMPLETED",
+  "progress": 100,
+  "currentStep": "Recruiter emails discovered",
+  "discoveries": [
+    {
+      "jobMatchId": "={{$json.jobMatchId}}",
+      "jobId": "={{$json.jobId}}",
+      "domain": "={{$json.domain}}",
+      "source": "hunter",
+      "contacts": "={{$json.data.emails}}"
+    }
+  ]
+}
+```
+
+The backend also exposes a direct test endpoint:
+
+```txt
+POST /api/v1/recruitment/email-discovery
+Authorization: Bearer <token>
+Body: { "resumeId": "...", "limit": 10, "hunterLimit": 10 }
+```
+
+It searches Hunter for the user's matched jobs and stores contacts on `JobOpportunity.contacts`.
+
+## Workflow 5: Application Generation
 
 Only generate drafts for matched jobs. Do not send Gmail.
 
@@ -399,7 +482,7 @@ APPLICATION_DRAFT_RESULT
 
 The frontend will show these drafts for approval.
 
-## Workflow 5: Email Sending
+## Workflow 6: Email Sending
 
 This workflow starts only after the backend receives approval from:
 
@@ -432,7 +515,7 @@ Steps:
 }
 ```
 
-## Workflow 6: Gmail Monitoring
+## Workflow 7: Gmail Monitoring
 
 Use Gmail Trigger or a scheduled Gmail Search node.
 

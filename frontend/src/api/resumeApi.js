@@ -34,3 +34,8 @@ export const getLatestResumeJobComparison = async (id) => {
     const response = await api.get(`/resumes/${id}/jobs/latest`);
     return response.data;
 };
+
+export const discoverMatchedJobEmails = async (payload = {}) => {
+    const response = await api.post("/recruitment/email-discovery", payload);
+    return response.data;
+};

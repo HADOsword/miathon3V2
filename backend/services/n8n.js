@@ -31,6 +31,12 @@ const getWorkflowUrl = (workflow) => {
 
 const getSharedSecret = () => process.env.N8N_SHARED_SECRET || "";
 
+const isUnregisteredWebhookError = (response, data) => {
+  const message = `${data.message || ""} ${data.msg || ""}`.toLowerCase();
+
+  return response.status === 404 && message.includes("webhook") && message.includes("not registered");
+};
+
 const signPayload = (payload) => {
   const secret = getSharedSecret();
 
@@ -104,6 +110,15 @@ const triggerWorkflow = async (workflow, payload) => {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    if (isUnregisteredWebhookError(response, data)) {
+      return {
+        triggered: false,
+        correlationId,
+        warning: `n8n webhook for ${workflow} is not registered at ${url}. Activate the workflow, or click "Listen for test event" if you are using a /webhook-test URL.`,
+        error: data.message || data.msg || "n8n webhook is not registered.",
+      };
+    }
+
     const error = new Error(data.message || data.msg || `n8n workflow ${workflow} failed to start.`);
     error.statusCode = response.status >= 500 ? 502 : response.status;
     error.expose = response.status < 500;
