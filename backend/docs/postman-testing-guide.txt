@@ -1,0 +1,438 @@
+Postman Testing Guide
+=====================
+
+Base URL
+--------
+Create a Postman environment variable:
+
+baseUrl = http://localhost:3000/api/v1
+token =
+resumeId =
+
+Every URL below uses:
+{{baseUrl}}
+
+
+Before Testing
+--------------
+1. Start MongoDB connection through the backend .env.
+2. Make sure backend/.env contains:
+   MONGO_URI
+   JWT_SECRET
+   GEMINI_API_KEY
+   JSEARCH_API_KEY
+   JSEARCH_API_HOST
+3. Start the backend server.
+4. In Postman, do not type "GET http://..." into the URL field.
+   Select the method from the dropdown, then put only the URL in the URL field.
+
+
+Recommended Test Order
+======================
+
+1. Register User
+----------------
+Method:
+POST
+
+URL:
+{{baseUrl}}/register
+
+Headers:
+Content-Type: application/json
+
+Body raw JSON:
+{
+  "username": "Test User",
+  "email": "test@example.com",
+  "password": "password123"
+}
+
+Expected:
+201 Created
+
+
+2. Login User
+-------------
+Method:
+POST
+
+URL:
+{{baseUrl}}/login
+
+Headers:
+Content-Type: application/json
+
+Body raw JSON:
+{
+  "email": "test@example.com",
+  "password": "password123"
+}
+
+Expected:
+200 OK
+
+Response:
+{
+  "msg": "user logged in",
+  "token": "..."
+}
+
+Postman Tests tab:
+const json = pm.response.json();
+pm.environment.set("token", json.token);
+
+
+3. Test Protected Route
+-----------------------
+Method:
+GET
+
+URL:
+{{baseUrl}}/dashboard
+
+Authorization:
+Bearer Token = {{token}}
+
+Expected:
+200 OK
+
+
+4. Get Profile
+--------------
+Method:
+GET
+
+URL:
+{{baseUrl}}/profile
+
+Authorization:
+Bearer Token = {{token}}
+
+Expected:
+200 OK
+
+
+5. Update Profile
+-----------------
+Method:
+PATCH
+
+URL:
+{{baseUrl}}/profile
+
+Authorization:
+Bearer Token = {{token}}
+
+Headers:
+Content-Type: application/json
+
+Body raw JSON:
+{
+  "name": "Updated Test User",
+  "email": "updated.test@example.com"
+}
+
+Expected:
+200 OK
+
+Optional password update body:
+{
+  "currentPassword": "password123",
+  "newPassword": "newPassword123"
+}
+
+Important:
+If the profile response returns a new token, update the Postman token variable.
+
+
+6. Upload Profile Avatar
+------------------------
+Method:
+PATCH
+
+URL:
+{{baseUrl}}/profile/avatar
+
+Authorization:
+Bearer Token = {{token}}
+
+Body:
+form-data
+
+Key:
+avatar
+
+Type:
+File
+
+Value:
+Choose a JPG, PNG, WEBP, or GIF file.
+
+Expected:
+200 OK
+
+
+7. Delete Profile Avatar
+------------------------
+Method:
+DELETE
+
+URL:
+{{baseUrl}}/profile/avatar
+
+Authorization:
+Bearer Token = {{token}}
+
+Expected:
+200 OK
+
+
+8. Upload CV
+------------
+Method:
+POST
+
+URL:
+{{baseUrl}}/cv/upload
+
+Authorization:
+Bearer Token = {{token}}
+
+Body:
+form-data
+
+Recommended key:
+resume
+
+Type:
+File
+
+Value:
+Choose a valid PDF or DOCX file.
+
+Accepted file keys:
+resume
+cv
+file
+
+Rules:
+- Only PDF and DOCX are accepted.
+- Max file size is 5 MB.
+- Gemini must be working for this route to complete successfully.
+
+Expected:
+201 Created
+
+Postman Tests tab:
+const json = pm.response.json();
+pm.environment.set("resumeId", json.resume._id);
+
+
+9. List My Resumes
+------------------
+Method:
+GET
+
+URL:
+{{baseUrl}}/resumes
+
+Authorization:
+Bearer Token = {{token}}
+
+Expected:
+200 OK
+
+
+10. Get One Resume
+------------------
+Method:
+GET
+
+URL:
+{{baseUrl}}/resumes/{{resumeId}}
+
+Authorization:
+Bearer Token = {{token}}
+
+Expected:
+200 OK
+
+
+11. Update Resume
+-----------------
+Method:
+PATCH
+
+URL:
+{{baseUrl}}/resumes/{{resumeId}}
+
+Authorization:
+Bearer Token = {{token}}
+
+Headers:
+Content-Type: application/json
+
+Body raw JSON:
+{
+  "title": "Updated Resume Title",
+  "notes": "This CV is targeted for software developer jobs.",
+  "tags": ["software", "backend", "morocco"]
+}
+
+Expected:
+200 OK
+
+Optional body for correcting extracted/analysis data:
+{
+  "extractedText": "Corrected extracted CV text...",
+  "analysis": {
+    "main_profile": "Software Developer",
+    "seniority_level": "Junior",
+    "technical_skills": {
+      "Programming Languages": ["JavaScript", "Java"]
+    },
+    "soft_skills": ["Communication", "Teamwork"]
+  }
+}
+
+
+12. Search Job Offers And Analyze Market
+----------------------------------------
+Method:
+GET
+
+URL:
+{{baseUrl}}/resumes/{{resumeId}}/jobs?country=ma&language=en&jobs_limit=10&location=Morocco
+
+Authorization:
+Bearer Token = {{token}}
+
+Expected:
+200 OK
+
+What this route does:
+1. Reads the resume analysis main_profile.
+2. Searches JSearch using that profile.
+3. Sends job descriptions internally to Gemini.
+4. Stores a compact market analysis.
+5. Returns compact job cards and market skill demand.
+
+Useful query examples:
+
+Without Gemini analysis:
+{{baseUrl}}/resumes/{{resumeId}}/jobs?analyze=false
+
+Search a custom role:
+{{baseUrl}}/resumes/{{resumeId}}/jobs?query=Backend Developer&location=Casablanca
+
+Limit jobs:
+{{baseUrl}}/resumes/{{resumeId}}/jobs?jobs_limit=5
+
+Remote filter:
+{{baseUrl}}/resumes/{{resumeId}}/jobs?work_from_home=true
+
+Recent jobs:
+{{baseUrl}}/resumes/{{resumeId}}/jobs?date_posted=week
+
+
+13. Delete Resume
+-----------------
+Method:
+DELETE
+
+URL:
+{{baseUrl}}/resumes/{{resumeId}}
+
+Authorization:
+Bearer Token = {{token}}
+
+Expected:
+200 OK
+
+
+14. Delete Profile
+------------------
+Method:
+DELETE
+
+URL:
+{{baseUrl}}/profile
+
+Authorization:
+Bearer Token = {{token}}
+
+Expected:
+200 OK
+
+Warning:
+This deletes the user account and all resumes owned by that user.
+
+
+Common Errors
+=============
+
+401 Unauthorized
+----------------
+Cause:
+Missing or invalid Bearer token.
+
+Fix:
+Login again and set the token environment variable.
+
+
+Unexpected field
+----------------
+Cause:
+Wrong multipart key for file upload.
+
+Fix for CV upload:
+Use one of these file keys: resume, cv, file.
+
+Fix for avatar upload:
+Use file key: avatar.
+
+
+400 Only valid PDF and DOCX files are allowed
+--------------------------------------------
+Cause:
+Wrong file extension or MIME type for CV upload.
+
+Fix:
+Use a real PDF or DOCX file.
+
+
+400 Uploaded file content does not match its file type
+------------------------------------------------------
+Cause:
+File extension says PDF/DOCX/image, but actual file content is different.
+
+Fix:
+Use a real file of the selected type, not a renamed file.
+
+
+403 Gemini API key leaked / permission denied
+---------------------------------------------
+Cause:
+Gemini API key is blocked or compromised.
+
+Fix:
+Generate a new Gemini key, update backend/.env, and restart the server.
+
+
+JSearch request failed
+----------------------
+Cause:
+RapidAPI/JSearch key, host, subscription, or quota issue.
+
+Fix:
+Check JSEARCH_API_KEY and JSEARCH_API_HOST in backend/.env.
+
+
+Invalid protocol: get http:
+---------------------------
+Cause:
+In Postman, "GET" was typed into the URL field.
+
+Fix:
+Select GET from the method dropdown and put only the URL in the URL field.

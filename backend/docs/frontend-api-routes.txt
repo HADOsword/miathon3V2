@@ -1,0 +1,484 @@
+Frontend API Routes Contract
+============================
+
+Base URL
+--------
+Local backend base URL:
+http://localhost:3000/api/v1
+
+Authentication
+--------------
+Protected routes require:
+Authorization: Bearer <token>
+
+The token is returned by POST /login and also returned after a successful profile update.
+
+
+1. Auth Routes
+==============
+
+POST /register
+---------------
+Purpose:
+Create a new user account.
+
+Auth:
+No token required.
+
+Content-Type:
+application/json
+
+Request body:
+{
+  "username": "Aalae LOUKILI",
+  "email": "aalae@example.com",
+  "password": "password123"
+}
+
+Notes:
+- "name" can also be used instead of "username".
+- username/name must be 3 to 50 characters.
+- password must be at least 8 characters.
+
+Success response:
+201
+{
+  "msg": "User registered successfully",
+  "user": {
+    "id": "...",
+    "name": "...",
+    "email": "...",
+    "avatarUrl": ""
+  }
+}
+
+
+POST /login
+------------
+Purpose:
+Authenticate user and get JWT token.
+
+Auth:
+No token required.
+
+Content-Type:
+application/json
+
+Request body:
+{
+  "email": "aalae@example.com",
+  "password": "password123"
+}
+
+Success response:
+200
+{
+  "msg": "user logged in",
+  "token": "..."
+}
+
+
+2. Dashboard / Users
+====================
+
+GET /dashboard
+---------------
+Purpose:
+Simple protected test route.
+
+Auth:
+Required.
+
+Request body:
+None.
+
+
+GET /users
+-----------
+Purpose:
+Get all users.
+
+Auth:
+Required.
+
+Request body:
+None.
+
+Response shape:
+{
+  "users": [
+    {
+      "_id": "...",
+      "name": "...",
+      "email": "...",
+      "profileImage": {
+        "mimeType": ""
+      },
+      "createdAt": "...",
+      "updatedAt": "..."
+    }
+  ]
+}
+
+
+3. Profile Routes
+=================
+
+GET /profile
+-------------
+Purpose:
+Get current authenticated user's profile.
+
+Auth:
+Required.
+
+Request body:
+None.
+
+Response shape:
+{
+  "user": {
+    "id": "...",
+    "name": "...",
+    "email": "...",
+    "avatarUrl": "data:image/png;base64,..."
+  }
+}
+
+
+PATCH /profile
+---------------
+Purpose:
+Update current user's profile.
+
+Auth:
+Required.
+
+Content-Type:
+application/json
+
+Request body:
+All fields are optional, but at least one valid field must be sent.
+
+{
+  "name": "New Name",
+  "email": "new.email@example.com",
+  "currentPassword": "oldPassword123",
+  "newPassword": "newPassword123"
+}
+
+Notes:
+- "username" can also be used instead of "name".
+- To change password, both currentPassword and newPassword are required.
+- newPassword must be at least 8 characters.
+
+Success response:
+{
+  "msg": "Profile updated successfully",
+  "token": "...",
+  "user": {
+    "id": "...",
+    "name": "...",
+    "email": "...",
+    "avatarUrl": "..."
+  }
+}
+
+
+DELETE /profile
+----------------
+Purpose:
+Delete current user's account and all their resumes.
+
+Auth:
+Required.
+
+Request body:
+None.
+
+
+PATCH /profile/avatar
+---------------------
+Purpose:
+Upload or replace profile avatar.
+
+Auth:
+Required.
+
+Content-Type:
+multipart/form-data
+
+Form-data field:
+avatar: image file
+
+Allowed file types:
+JPG, PNG, WEBP, GIF
+
+Success response:
+{
+  "msg": "Profile image updated successfully",
+  "user": {
+    "id": "...",
+    "name": "...",
+    "email": "...",
+    "avatarUrl": "data:image/png;base64,..."
+  }
+}
+
+
+DELETE /profile/avatar
+----------------------
+Purpose:
+Remove current user's profile avatar.
+
+Auth:
+Required.
+
+Request body:
+None.
+
+
+4. CV Upload Route
+==================
+
+POST /cv/upload
+---------------
+Purpose:
+Upload a CV, extract text, analyze it with Gemini, and store it as a Resume.
+
+Auth:
+Required.
+
+Content-Type:
+multipart/form-data
+
+Accepted form-data file field names:
+resume
+cv
+file
+
+Recommended frontend field name:
+resume
+
+Allowed file types:
+PDF, DOCX
+
+Max file size:
+5 MB
+
+Success response:
+201
+{
+  "success": true,
+  "resume": {
+    "_id": "...",
+    "user": "...",
+    "title": "...",
+    "originalFileName": "...",
+    "storedFileName": "...",
+    "filePath": "...",
+    "mimeType": "application/pdf",
+    "size": 12345,
+    "extractedText": "...",
+    "analysis": {
+      "full_name": "",
+      "email": "",
+      "phone": "",
+      "professional_summary": "",
+      "main_profile": "Software Developer",
+      "seniority_level": "Junior",
+      "years_of_experience": 0,
+      "education": [],
+      "work_experience": [],
+      "technical_skills": {},
+      "soft_skills": [],
+      "ats_analysis": {}
+    },
+    "analysisProvider": "gemini",
+    "analysisModel": "gemini-2.5-flash",
+    "createdAt": "...",
+    "updatedAt": "..."
+  }
+}
+
+
+5. Resume CRUD Routes
+=====================
+
+GET /resumes
+-------------
+Purpose:
+List all resumes owned by the authenticated user.
+
+Auth:
+Required.
+
+Request body:
+None.
+
+Response shape:
+{
+  "count": 1,
+  "resumes": [
+    {
+      "_id": "...",
+      "title": "...",
+      "originalFileName": "...",
+      "mimeType": "...",
+      "size": 12345,
+      "analysisProvider": "gemini",
+      "analysisModel": "gemini-2.5-flash",
+      "notes": "",
+      "tags": [],
+      "createdAt": "...",
+      "updatedAt": "..."
+    }
+  ]
+}
+
+
+GET /resumes/:id
+----------------
+Purpose:
+Get one resume owned by the authenticated user.
+
+Auth:
+Required.
+
+Request body:
+None.
+
+
+PATCH /resumes/:id
+------------------
+Purpose:
+Update editable resume data.
+
+Auth:
+Required.
+
+Content-Type:
+application/json
+
+Request body:
+All fields are optional, but at least one valid field must be sent.
+
+{
+  "title": "My Updated CV",
+  "notes": "Notes for this CV",
+  "tags": ["software", "backend"],
+  "extractedText": "Updated extracted text if manually corrected.",
+  "analysis": {
+    "main_profile": "Software Developer",
+    "seniority_level": "Junior"
+  }
+}
+
+Validation:
+- title must be 1 to 120 characters.
+- notes max length is 2000 characters.
+- tags must be an array of strings; max 20 tags are kept.
+- extractedText cannot be empty.
+- analysis must be an object.
+
+
+DELETE /resumes/:id
+-------------------
+Purpose:
+Delete one resume and remove its uploaded file from disk.
+
+Auth:
+Required.
+
+Request body:
+None.
+
+
+6. Job Market / Job Offers Route
+================================
+
+GET /resumes/:resumeId/jobs
+---------------------------
+Purpose:
+Search job offers using the resume analysis main_profile, analyze market skill demand with Gemini, store the compact analysis, and return compact data for the frontend.
+
+Auth:
+Required.
+
+Request body:
+None.
+
+Query parameters:
+- country: default "ma"
+- language: default "en"
+- page: default 1, max 50
+- num_pages or numPages: default 1, max 5
+- jobs_limit or jobsLimit: default 10, max 25
+- analyze: default true. Use analyze=false to only return job cards without Gemini market analysis.
+- query: optional manual search query. If omitted, backend uses resume.analysis.main_profile.
+- location: optional. Example: Casablanca. If present, backend searches "<profile> in <location>".
+- date_posted or datePosted: optional JSearch filter.
+- employment_types or employmentTypes: optional JSearch filter.
+- work_from_home or workFromHome: optional true/false.
+
+Example:
+GET /resumes/69ff965b65e977d5c35b7ed4/jobs?country=ma&language=en&jobs_limit=10&location=Morocco
+
+Response shape:
+{
+  "resumeId": "...",
+  "mainProfile": "Software Developer",
+  "query": "Software Developer in Morocco",
+  "count": 10,
+  "totalFetched": 10,
+  "country": "ma",
+  "jobs": [
+    {
+      "job_id": "...",
+      "job_title": "Software Engineer",
+      "employer_name": "Company",
+      "apply_url": "https://...",
+      "posted_at": "2 days ago",
+      "posted_at_datetime_utc": "2026-05-07T00:00:00.000Z",
+      "location": "Casablanca",
+      "country": "MA",
+      "publisher": "Indeed",
+      "employment_type": "Full-time",
+      "is_remote": false,
+      "salary_string": ""
+    }
+  ],
+  "jobMarketAnalysis": {
+    "id": "...",
+    "query": "Software Developer in Morocco",
+    "mainProfile": "Software Developer",
+    "country": "ma",
+    "language": "en",
+    "jobsCount": 10,
+    "marketAnalysis": {
+      "target_profile": "Software Developer",
+      "jobs_analyzed_count": 10,
+      "dominant_technical_skills": [],
+      "dominant_soft_skills": [],
+      "common_tools": [],
+      "common_frameworks": [],
+      "common_databases": [],
+      "common_programming_languages": [],
+      "common_responsibilities": [],
+      "common_requirements": [],
+      "certifications_mentioned": [],
+      "role_keywords": [],
+      "market_summary": "",
+      "skill_frequency_notes": []
+    },
+    "analysisProvider": "gemini",
+    "analysisModel": "gemini-2.5-flash",
+    "createdAt": "..."
+  }
+}
+
+Frontend notes:
+- Show "jobs" as offer cards.
+- Use apply_url for the apply button.
+- Use jobMarketAnalysis.marketAnalysis for skill gap comparison against the user's resume analysis.
+- Do not expect job descriptions in the response; descriptions are used internally only for Gemini analysis.
