@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const path = require("path");
 const Resume = require("../models/Resume");
 const CandidateProfile = require("../models/CandidateProfile");
 const AgentRun = require("../models/AgentRun");
@@ -7,10 +8,21 @@ const JobMatch = require("../models/JobMatch");
 const Application = require("../models/Application");
 const Notification = require("../models/Notification");
 const JobMarketAnalysis = require("../models/JobMarketAnalysis");
+const IntegrationAccount = require("../models/IntegrationAccount");
 const { triggerWorkflow, verifySignature } = require("../services/n8n");
 const { mapResumeAnalysisToProfile, normalizeResumeAnalysis } = require("../services/profileMapper");
 const { mapApiJobToOpportunity, mapMatchPayload } = require("../services/applicationMapper");
 const { resolveJobDomain, searchDomainEmails } = require("../services/hunter");
+const {
+  buildGoogleAuthUrl,
+  exchangeCodeForTokens,
+  fetchGoogleUserInfo,
+  getConnectedGmail,
+  getFrontendUrl,
+  getValidGmailAccessToken,
+  saveGmailIntegration,
+  verifyStatePayload,
+} = require("../services/googleOAuth");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -40,6 +52,61 @@ const normalizeN8nPayload = (body = {}) => {
 };
 
 const getUserObjectId = (req) => req.body.userId || req.user?.id;
+
+const sanitizeIntegration = (integration) => {
+  if (!integration) {
+    return null;
+  }
+
+  return {
+    provider: integration.provider,
+    status: integration.status,
+    email: integration.email,
+    scopes: integration.scopes,
+    expiresAt: integration.expiresAt,
+    lastSyncedAt: integration.lastSyncedAt,
+    connectedAt: integration.createdAt,
+  };
+};
+
+const requireN8nSecret = (req, res, next) => {
+  const secret = process.env.N8N_SHARED_SECRET || "";
+
+  if (!secret) {
+    return next();
+  }
+
+  if (req.headers["x-n8n-secret"] === secret) {
+    return next();
+  }
+
+  return res.status(401).json({ msg: "Invalid n8n secret." });
+};
+
+const pickBestContact = (contacts = []) => {
+  const roleScore = (contact = {}) => {
+    const haystack = [
+      contact.position,
+      contact.department,
+      contact.seniority,
+      contact.fullName,
+    ].join(" ").toLowerCase();
+
+    if (/(recruit|talent|people|human resources|\bhr\b|acquisition)/i.test(haystack)) {
+      return 30;
+    }
+
+    return 0;
+  };
+
+  return [...contacts]
+    .filter((contact) => contact.email)
+    .sort((left, right) => {
+      const leftScore = Number(left.confidence || 0) + roleScore(left);
+      const rightScore = Number(right.confidence || 0) + roleScore(right);
+      return rightScore - leftScore;
+    })[0] || null;
+};
 
 const mergeContacts = (existingContacts = [], newContacts = []) => {
   const contactsByEmail = new Map();
@@ -799,6 +866,275 @@ const listApplications = async (req, res) => {
   return res.status(200).json({ count: applications.length, applications });
 };
 
+const getGmailStatus = async (req, res) => {
+  const integration = await IntegrationAccount.findOne({
+    user: req.user.id,
+    provider: "gmail",
+  });
+
+  return res.status(200).json({
+    connected: integration?.status === "CONNECTED",
+    integration: sanitizeIntegration(integration),
+  });
+};
+
+const connectGmail = async (req, res) => {
+  const authUrl = buildGoogleAuthUrl({ userId: req.user.id });
+
+  return res.status(200).json({ authUrl });
+};
+
+const handleGmailCallback = async (req, res, next) => {
+  try {
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    const state = verifyStatePayload(req.query.state);
+    const frontendUrl = getFrontendUrl();
+
+    if (!code || !state?.userId) {
+      return res.redirect(`${frontendUrl}/integrations/gmail?status=failed`);
+    }
+
+    const tokens = await exchangeCodeForTokens(code);
+    const profile = await fetchGoogleUserInfo(tokens.access_token);
+    await saveGmailIntegration({ userId: state.userId, tokens, profile });
+
+    return res.redirect(`${frontendUrl}/integrations/gmail?status=connected`);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const disconnectGmail = async (req, res) => {
+  const integration = await IntegrationAccount.findOneAndUpdate(
+    { user: req.user.id, provider: "gmail" },
+    {
+      status: "DISCONNECTED",
+      tokenRef: "",
+      expiresAt: null,
+      metadata: {},
+    },
+    { new: true }
+  );
+
+  return res.status(200).json({
+    msg: "Gmail disconnected.",
+    integration: sanitizeIntegration(integration),
+  });
+};
+
+const applyToMatchedJob = async (req, res) => {
+  const jobMatchId = req.body.jobMatchId || "";
+  const resumeId = req.body.resumeId || null;
+
+  if (!isValidObjectId(jobMatchId)) {
+    return res.status(400).json({ msg: "Valid jobMatchId is required." });
+  }
+
+  if (resumeId && !isValidObjectId(resumeId)) {
+    return res.status(400).json({ msg: "Invalid resume id." });
+  }
+
+  const gmail = await getConnectedGmail(req.user.id);
+
+  if (!gmail) {
+    return res.status(409).json({
+      msg: "Connect Gmail before applying to matched jobs.",
+      requiresGmailAuth: true,
+      connectUrl: "/api/v1/integrations/gmail/connect",
+    });
+  }
+
+  const match = await JobMatch.findOne({
+    _id: jobMatchId,
+    user: req.user.id,
+  }).populate("job");
+
+  if (!match) {
+    return res.status(404).json({ msg: "Job match not found." });
+  }
+
+  const selectedResumeId = resumeId || match.resume;
+  const resume = await Resume.findOne({ _id: selectedResumeId, user: req.user.id });
+
+  if (!resume) {
+    return res.status(404).json({ msg: "Resume not found." });
+  }
+
+  const job = match.job;
+  const contact = pickBestContact(job?.contacts || []);
+
+  if (!contact) {
+    return res.status(409).json({
+      msg: "No recruiter email is available for this matched job yet.",
+      requiresEmailDiscovery: true,
+    });
+  }
+
+  const agentRun = await AgentRun.create({
+    user: req.user.id,
+    resume: selectedResumeId,
+    workflow: "APPLICATION_GENERATION",
+    status: "QUEUED",
+    currentStep: "Waiting for application draft workflow",
+    input: {
+      jobMatchId: match._id,
+      jobId: job?._id,
+      recruiterEmail: contact.email,
+      senderEmail: gmail.email,
+    },
+  });
+
+  match.status = "DRAFT_REQUESTED";
+  await match.save();
+
+  const n8n = await triggerWorkflow("APPLICATION_GENERATION", {
+    userId: req.user.id,
+    resumeId: selectedResumeId,
+    jobMatchId: match._id,
+    jobId: job?._id,
+    agentRunId: agentRun._id,
+  });
+
+  agentRun.correlationId = n8n.correlationId;
+  agentRun.events.push({
+    type: n8n.triggered ? "N8N_TRIGGERED" : "N8N_NOT_CONFIGURED",
+    message: n8n.warning || "Application generation workflow started.",
+    metadata: n8n.data || {},
+  });
+  await agentRun.save();
+
+  return res.status(202).json({
+    msg: n8n.triggered
+      ? "Application draft generation queued."
+      : "Apply request recorded, but n8n application generation is not configured.",
+    gmail: sanitizeIntegration(gmail),
+    agentRun,
+    n8n,
+  });
+};
+
+const getApplicationContextForN8n = async (req, res) => {
+  const body = req.body || {};
+  const userId = req.query.userId || body.userId;
+  const jobMatchId = req.query.jobMatchId || body.jobMatchId;
+  const resumeId = req.query.resumeId || body.resumeId;
+
+  if (!isValidObjectId(userId) || !isValidObjectId(jobMatchId)) {
+    return res.status(400).json({ msg: "Valid userId and jobMatchId are required." });
+  }
+
+  const match = await JobMatch.findOne({ _id: jobMatchId, user: userId }).populate("job");
+
+  if (!match) {
+    return res.status(404).json({ msg: "Job match not found." });
+  }
+
+  const selectedResumeId = resumeId || match.resume;
+  const [resume, profile, gmail] = await Promise.all([
+    Resume.findOne({ _id: selectedResumeId, user: userId }),
+    CandidateProfile.findOne({ user: userId, resume: selectedResumeId }).sort({ updatedAt: -1 }),
+    getConnectedGmail(userId),
+  ]);
+
+  if (!resume) {
+    return res.status(404).json({ msg: "Resume not found." });
+  }
+
+  return res.status(200).json({
+    userId,
+    resume: {
+      id: resume._id,
+      title: resume.title,
+      originalFileName: resume.originalFileName,
+      mimeType: resume.mimeType,
+      extractedText: resume.extractedText,
+      analysis: resume.analysis,
+    },
+    profile,
+    match,
+    job: match.job,
+    recruiter: pickBestContact(match.job?.contacts || []),
+    sender: sanitizeIntegration(gmail),
+  });
+};
+
+const getApplicationSendPayloadForN8n = async (req, res) => {
+  const applicationId = req.params.id;
+
+  if (!isValidObjectId(applicationId)) {
+    return res.status(400).json({ msg: "Invalid application id." });
+  }
+
+  const application = await Application.findById(applicationId)
+    .populate("job")
+    .populate("resume");
+
+  if (!application) {
+    return res.status(404).json({ msg: "Application not found." });
+  }
+
+  if (application.status !== "APPROVED") {
+    return res.status(409).json({ msg: "Application is not approved for sending." });
+  }
+
+  const gmail = await getValidGmailAccessToken(application.user);
+
+  if (!gmail) {
+    return res.status(409).json({ msg: "Gmail is not connected for this user." });
+  }
+
+  const subject = application.approval.editedSubject || application.draft.subject;
+  const body = application.approval.editedBody || application.draft.body;
+  const coverLetter = application.approval.editedCoverLetter || application.draft.coverLetter;
+
+  return res.status(200).json({
+    applicationId: application._id,
+    userId: application.user,
+    to: application.recruiter.email,
+    from: gmail.senderEmail,
+    subject,
+    body,
+    coverLetter,
+    gmail: {
+      accessToken: gmail.accessToken,
+      senderEmail: gmail.senderEmail,
+      expiresAt: gmail.expiresAt,
+    },
+    resume: {
+      id: application.resume._id,
+      title: application.resume.title,
+      originalFileName: application.resume.originalFileName,
+      filePath: application.resume.filePath,
+      mimeType: application.resume.mimeType,
+      downloadUrl: `${(process.env.BACKEND_URL || "").replace(/\/$/, "")}/api/v1/n8n/resumes/${application.resume._id}/download`,
+    },
+    job: application.job,
+  });
+};
+
+const downloadResumeForN8n = async (req, res) => {
+  const resumeId = req.params.id;
+
+  if (!isValidObjectId(resumeId)) {
+    return res.status(400).json({ msg: "Invalid resume id." });
+  }
+
+  const resume = await Resume.findById(resumeId);
+
+  if (!resume) {
+    return res.status(404).json({ msg: "Resume not found." });
+  }
+
+  const uploadsDir = path.resolve(__dirname, "..", "uploads");
+  const filePath = path.resolve(resume.filePath);
+
+  if (!filePath.startsWith(uploadsDir + path.sep)) {
+    return res.status(403).json({ msg: "Resume file path is outside uploads directory." });
+  }
+
+  return res.download(filePath, resume.originalFileName);
+};
+
 const decideApplication = async (req, res) => {
   if (!isValidObjectId(req.params.id)) {
     return res.status(400).json({ msg: "Invalid application id." });
@@ -847,6 +1183,20 @@ const decideApplication = async (req, res) => {
   let n8n = null;
 
   if (application.status === "APPROVED") {
+    const gmail = await getConnectedGmail(req.user.id);
+
+    if (!gmail) {
+      application.status = "WAITING_USER_APPROVAL";
+      application.approval.status = "PENDING";
+      await application.save();
+
+      return res.status(409).json({
+        msg: "Connect Gmail before sending this application.",
+        requiresGmailAuth: true,
+        connectUrl: "/api/v1/integrations/gmail/connect",
+      });
+    }
+
     const agentRun = await AgentRun.create({
       user: req.user.id,
       resume: application.resume,
@@ -936,6 +1286,15 @@ module.exports = {
   getRecruitmentDashboard,
   startWorkflow,
   discoverMatchedJobEmails,
+  getGmailStatus,
+  connectGmail,
+  handleGmailCallback,
+  disconnectGmail,
+  applyToMatchedJob,
+  getApplicationContextForN8n,
+  getApplicationSendPayloadForN8n,
+  downloadResumeForN8n,
+  requireN8nSecret,
   receiveN8nEvent,
   listApplications,
   decideApplication,

@@ -119,7 +119,7 @@ const pickResumeFields = (body) => {
 
 const getMyResumes = async (req, res) => {
   const resumes = await Resume.find({ user: req.user.id })
-    .select("_id title originalFileName mimeType size analysisProvider analysisModel notes tags createdAt updatedAt")
+    .select("_id title originalFileName mimeType size processingStatus processingError analysisProvider analysisModel notes tags createdAt updatedAt")
     .sort({ createdAt: -1 });
 
   return res.status(200).json({ count: resumes.length, resumes });

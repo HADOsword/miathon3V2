@@ -35,6 +35,15 @@ const {
   getRecruitmentDashboard,
   startWorkflow,
   discoverMatchedJobEmails,
+  getGmailStatus,
+  connectGmail,
+  handleGmailCallback,
+  disconnectGmail,
+  applyToMatchedJob,
+  getApplicationContextForN8n,
+  getApplicationSendPayloadForN8n,
+  downloadResumeForN8n,
+  requireN8nSecret,
   receiveN8nEvent,
   listApplications,
   decideApplication,
@@ -83,6 +92,19 @@ router.route("/register").post(register);
 // ================= N8N CALLBACKS =================
 router.route("/n8n/events").post(receiveN8nEvent);
 
+router
+  .route("/n8n/application-context")
+  .get(requireN8nSecret, getApplicationContextForN8n)
+  .post(requireN8nSecret, getApplicationContextForN8n);
+
+router
+  .route("/n8n/applications/:id/send-payload")
+  .get(requireN8nSecret, getApplicationSendPayloadForN8n);
+
+router
+  .route("/n8n/resumes/:id/download")
+  .get(requireN8nSecret, downloadResumeForN8n);
+
 // ================= DASHBOARD =================
 router.route("/dashboard").get(authMiddleware, dashboard);
 
@@ -103,8 +125,28 @@ router
   .post(authMiddleware, chatWithAgent);
 
 router
+  .route("/integrations/gmail/status")
+  .get(authMiddleware, getGmailStatus);
+
+router
+  .route("/integrations/gmail/connect")
+  .get(authMiddleware, connectGmail);
+
+router
+  .route("/integrations/gmail/callback")
+  .get(handleGmailCallback);
+
+router
+  .route("/integrations/gmail")
+  .delete(authMiddleware, disconnectGmail);
+
+router
   .route("/applications")
   .get(authMiddleware, listApplications);
+
+router
+  .route("/applications/apply")
+  .post(authMiddleware, applyToMatchedJob);
 
 router
   .route("/applications/:id/decision")

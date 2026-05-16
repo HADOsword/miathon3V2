@@ -35,6 +35,8 @@ const uploadSteps = [
 ];
 
 const getFileExtension = (name = "") => name.split(".").pop()?.toLowerCase() || "";
+const isQueuedN8nUpload = (result) =>
+    result?.resume?.processingStatus !== "PROFILE_EXTRACTED" && result?.n8n?.triggered;
 
 function CVUpload() {
     const navigate = useNavigate();
@@ -153,10 +155,12 @@ function CVUpload() {
                                 <CheckCircle size={34} />
                             </div>
                             <h1 className="mt-5 text-2xl font-semibold text-[#f7f5ef] sm:text-3xl">
-                                CV analyzed and saved
+                                {isQueuedN8nUpload(saveResult) ? "CV uploaded and analysis started" : "CV analyzed and saved"}
                             </h1>
                             <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-zinc-400">
-                                {savedFileName} is stored with its extracted analysis in your resume records.
+                                {isQueuedN8nUpload(saveResult)
+                                    ? `${savedFileName} is stored. n8n is finishing the extraction and market analysis in the background.`
+                                    : `${savedFileName} is stored with its extracted analysis in your resume records.`}
                             </p>
 
                             <div className="mx-auto mt-7 grid max-w-2xl gap-3 sm:grid-cols-3">
