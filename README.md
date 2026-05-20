@@ -200,52 +200,6 @@ npm install
 cd ../frontend
 npm install
 ```
-
-### Backend Environment
-
-Create `backend/.env`:
-
-```env
-MONGO_URI=your_mongodb_connection_string
-JWT_SECRET=your_jwt_secret
-PORT=3000
-JSON_BODY_LIMIT=10mb
-
-AI_PROVIDER=gemini
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-2.5-flash
-AI_MAX_CV_CHARS=60000
-AI_MAX_JOB_DESCRIPTION_CHARS=1800
-
-JSEARCH_API_KEY=your_jsearch_api_key
-JSEARCH_API_HOST=jsearch.p.rapidapi.com
-HUNTER_API_KEY=your_hunter_api_key
-
-USE_N8N_RESUME_WORKFLOW=true
-N8N_BASE_URL=https://your-n8n-instance
-BACKEND_URL=http://localhost:3000
-N8N_SHARED_SECRET=your_shared_secret
-
-N8N_RESUME_UPLOAD_WEBHOOK=/webhook/recruitment/resume-upload
-N8N_MARKET_ANALYSIS_WEBHOOK=/webhook/recruitment/market-analysis
-N8N_JOB_MATCHING_WEBHOOK=/webhook/recruitment/job-matching
-N8N_EMAIL_DISCOVERY_WEBHOOK=/webhook/recruitment/email-discovery
-```
-
-### Frontend Environment
-
-Create `frontend/.env`:
-
-```env
-VITE_API_URL=http://localhost:3000/api/v1
-```
-
-When using ngrok or a hosted backend:
-
-```env
-VITE_API_URL=https://your-public-backend-url/api/v1
-```
-
 ### Run Locally
 
 Backend:
@@ -315,42 +269,6 @@ Final callback example:
   "progress": 100,
   "currentStep": "Workflow completed"
 }
-```
-
-## Important API Routes
-
-### Authentication
-
-```txt
-POST /api/v1/register
-POST /api/v1/login
-GET  /api/v1/profile
-PATCH /api/v1/profile
-```
-
-### Resume Data
-
-```txt
-POST   /api/v1/cv/upload
-GET    /api/v1/resumes
-GET    /api/v1/resumes/:id
-PATCH  /api/v1/resumes/:id
-DELETE /api/v1/resumes/:id
-```
-
-### Recruitment Workflow
-
-```txt
-GET  /api/v1/recruitment/dashboard
-POST /api/v1/recruitment/workflows
-POST /api/v1/recruitment/email-discovery
-```
-
-### Market Analysis
-
-```txt
-GET /api/v1/resumes/:resumeId/jobs
-GET /api/v1/resumes/:resumeId/jobs/latest
 ```
 
 ***
