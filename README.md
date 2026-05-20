@@ -1,65 +1,87 @@
-# AI Recruitment Workflow Assistant
+# Miathon AI Recruitment Assistant
 
-A full-stack AI recruitment assistant that turns an uploaded CV into structured candidate data, job-market analysis, matched job opportunities, and recruiter/company email discovery.
+Miathon is an AI-powered recruitment workflow app that helps a candidate turn a CV into practical job-search intelligence.
 
-The project combines a React frontend, an Express/MongoDB backend, Gemini-powered analysis, JSearch job data, Hunter email discovery, and n8n workflow orchestration.
+Upload a CV, let the automation analyze the profile, discover relevant job opportunities, calculate match scores, identify skill gaps, and find company or recruiter emails for matched jobs.
 
-## Features
+## What It Does
 
-- User authentication with JWT-protected routes
-- CV upload for PDF and DOCX files
-- Text extraction and structured resume storage
-- Gemini CV/profile analysis
-- JSearch-powered job discovery
-- AI job-market comparison and skill-gap analysis
-- Saved matched jobs with compatibility and success scores
-- Hunter-powered company/recruiter email discovery
-- n8n workflow callbacks for long-running automation
-- Frontend polling for workflow progress until completion
-- Dashboard, resume management, market comparison, roadmap, and email discovery views
+- Upload a PDF or DOCX CV
+- Extract and structure candidate information
+- Analyze the candidate profile with Gemini
+- Search job offers with JSearch
+- Compare the CV against market demand
+- Save matched job opportunities
+- Show compatibility and success scores
+- Discover company/recruiter emails with Hunter
+- Track long-running workflow progress from the frontend
+- Store results in MongoDB for later review
+
+## Demo Flow
+
+```txt
+1. Sign up or log in
+2. Upload a CV
+3. The backend starts an n8n workflow
+4. n8n analyzes the CV and searches jobs
+5. Matching results are saved in MongoDB
+6. The frontend waits until the workflow finishes
+7. The user reviews matched jobs, scores, gaps, and discovered emails
+```
+
+## Screens and User Experience
+
+- Landing page
+- Register and login
+- Dashboard
+- CV upload page
+- Resume data manager
+- Market comparison page
+- Matched jobs and company email discovery
+- Notifications and workflow progress
 
 ## Architecture
 
 ```txt
-Frontend React app
-  -> Backend Express API
+React frontend
+  -> Express backend API
     -> MongoDB
     -> Gemini
     -> JSearch
     -> Hunter
-    -> n8n workflows
-      -> Backend callback /api/v1/n8n/events
-  -> Frontend reads saved backend state
+    -> n8n workflow automation
+      -> Backend callback endpoint
+  -> Frontend reads the saved backend state
 ```
 
-The frontend does not call n8n directly during normal usage. It calls the backend, and the backend triggers n8n.
+The frontend does not call n8n directly in normal usage. The frontend calls the backend, and the backend triggers n8n.
 
 ## Tech Stack
 
-### Frontend
+**Frontend**
 
 - React
 - Vite
 - React Router
-- Axios
 - Tailwind CSS
+- Axios
 - Framer Motion
 - Lucide React
 
-### Backend
+**Backend**
 
 - Node.js
 - Express
-- MongoDB / Mongoose
+- MongoDB and Mongoose
 - JWT authentication
-- Multer file uploads
-- PDF/DOCX parsing
+- Multer uploads
+- PDF and DOCX parsing
 - Gemini API
 - JSearch API
 - Hunter API
 - n8n webhooks
 
-## Repository Structure
+## Project Structure
 
 ```txt
 .
@@ -83,68 +105,36 @@ The frontend does not call n8n directly during normal usage. It calls the backen
 `-- README.md
 ```
 
-## Main Workflow
+## Getting Started
 
-```txt
-1. User uploads CV from frontend
-2. Backend stores the CV and extracted text
-3. Backend creates an AgentRun
-4. Backend triggers n8n RESUME_UPLOAD workflow
-5. n8n analyzes CV, searches jobs, ranks matches, and discovers company emails
-6. n8n sends callbacks to backend
-7. Backend stores profiles, market analysis, matches, contacts, and notifications
-8. Frontend polls backend until the workflow finishes
-9. User reviews matched jobs and discovered recruiter/company emails
+### Prerequisites
+
+- Node.js 18 or newer
+- npm
+- MongoDB database
+- Gemini API key
+- RapidAPI JSearch key
+- Hunter API key
+- n8n account or self-hosted n8n instance
+
+### 1. Clone The Repository
+
+```bash
+git clone <your-repo-url>
+cd miathon3V2
 ```
 
-## Important Routes
+### 2. Install Dependencies
 
-### Auth
+```bash
+cd backend
+npm install
 
-```txt
-POST /api/v1/register
-POST /api/v1/login
-GET  /api/v1/profile
-PATCH /api/v1/profile
+cd ../frontend
+npm install
 ```
 
-### CV and Resumes
-
-```txt
-POST   /api/v1/cv/upload
-GET    /api/v1/resumes
-GET    /api/v1/resumes/:id
-PATCH  /api/v1/resumes/:id
-DELETE /api/v1/resumes/:id
-```
-
-### Recruitment Workflow
-
-```txt
-GET  /api/v1/recruitment/dashboard
-POST /api/v1/recruitment/workflows
-POST /api/v1/recruitment/email-discovery
-POST /api/v1/recruitment/chat
-```
-
-### Jobs and Market Analysis
-
-```txt
-GET /api/v1/resumes/:resumeId/jobs
-GET /api/v1/resumes/:resumeId/jobs/latest
-```
-
-### n8n Callbacks
-
-```txt
-POST /api/v1/n8n/events
-```
-
-## Environment Variables
-
-Never commit real `.env` files or API keys.
-
-### Backend
+### 3. Configure Backend Environment
 
 Create `backend/.env`:
 
@@ -160,33 +150,26 @@ GEMINI_MODEL=gemini-2.5-flash
 AI_MAX_CV_CHARS=60000
 AI_MAX_JOB_DESCRIPTION_CHARS=1800
 
-JSEARCH_API_KEY=your_rapidapi_jsearch_key
+JSEARCH_API_KEY=your_jsearch_api_key
 JSEARCH_API_HOST=jsearch.p.rapidapi.com
-
 HUNTER_API_KEY=your_hunter_api_key
-APOLLO_API_KEY=your_apollo_api_key
 
 USE_N8N_RESUME_WORKFLOW=true
 N8N_BASE_URL=https://your-n8n-instance
-BACKEND_URL=https://your-public-backend-url
+BACKEND_URL=http://localhost:3000
 N8N_SHARED_SECRET=your_shared_secret
 
 N8N_RESUME_UPLOAD_WEBHOOK=/webhook/recruitment/resume-upload
 N8N_MARKET_ANALYSIS_WEBHOOK=/webhook/recruitment/market-analysis
 N8N_JOB_MATCHING_WEBHOOK=/webhook/recruitment/job-matching
 N8N_EMAIL_DISCOVERY_WEBHOOK=/webhook/recruitment/email-discovery
-N8N_APPLICATION_GENERATION_WEBHOOK=/webhook/recruitment/application-generation
-N8N_EMAIL_SENDING_WEBHOOK=/webhook/recruitment/email-sending
-N8N_GMAIL_MONITORING_WEBHOOK=/webhook/recruitment/gmail-monitoring
-N8N_NOTIFICATION_WEBHOOK=/webhook/recruitment/notification
-N8N_CHAT_WEBHOOK=/webhook/recruitment/chat
 ```
 
-For n8n test mode, use `/webhook-test/...` and click **Listen for test event** before triggering the workflow.
+For manual n8n testing, use `/webhook-test/...` and click **Listen for test event** in n8n before uploading a CV.
 
-For automatic execution, activate the n8n workflow and use `/webhook/...`.
+For automatic execution, activate the workflow in n8n and use `/webhook/...`.
 
-### Frontend
+### 4. Configure Frontend Environment
 
 Create `frontend/.env`:
 
@@ -194,25 +177,13 @@ Create `frontend/.env`:
 VITE_API_URL=http://localhost:3000/api/v1
 ```
 
-When testing with ngrok:
+If you expose the backend through ngrok:
 
 ```env
 VITE_API_URL=https://your-ngrok-domain/api/v1
 ```
 
-## Installation
-
-Install dependencies for both apps:
-
-```bash
-cd backend
-npm install
-
-cd ../frontend
-npm install
-```
-
-## Running Locally
+### 5. Run The App
 
 Start the backend:
 
@@ -228,27 +199,63 @@ cd frontend
 npm run dev
 ```
 
-Frontend:
+Open:
 
 ```txt
 http://localhost:5173
 ```
 
-Backend:
+## Main API Routes
+
+### Authentication
 
 ```txt
-http://localhost:3000/api/v1
+POST /api/v1/register
+POST /api/v1/login
+GET  /api/v1/profile
+PATCH /api/v1/profile
 ```
 
-## n8n Setup Notes
+### CV and Resume Data
 
-The resume upload workflow should start with a Webhook node:
+```txt
+POST   /api/v1/cv/upload
+GET    /api/v1/resumes
+GET    /api/v1/resumes/:id
+PATCH  /api/v1/resumes/:id
+DELETE /api/v1/resumes/:id
+```
+
+### Recruitment Workflow
+
+```txt
+GET  /api/v1/recruitment/dashboard
+POST /api/v1/recruitment/workflows
+POST /api/v1/recruitment/email-discovery
+```
+
+### Market Analysis
+
+```txt
+GET /api/v1/resumes/:resumeId/jobs
+GET /api/v1/resumes/:resumeId/jobs/latest
+```
+
+### n8n Callback
+
+```txt
+POST /api/v1/n8n/events
+```
+
+## n8n Workflow Notes
+
+The main workflow starts from:
 
 ```txt
 POST /webhook/recruitment/resume-upload
 ```
 
-The backend sends a payload containing:
+The backend sends:
 
 ```json
 {
@@ -264,19 +271,19 @@ The backend sends a payload containing:
 }
 ```
 
-n8n should call back to:
+n8n should callback to:
 
 ```txt
 POST /api/v1/n8n/events
 ```
 
-with the shared secret header:
+with:
 
 ```txt
-x-n8n-secret: N8N_SHARED_SECRET
+x-n8n-secret: your_shared_secret
 ```
 
-The final callback should mark the agent run as complete:
+The final callback should mark the workflow complete:
 
 ```json
 {
@@ -288,7 +295,9 @@ The final callback should mark the agent run as complete:
 }
 ```
 
-## Useful Docs In This Repo
+## Documentation
+
+More setup notes are available in:
 
 - `backend/docs/n8n-recruitment-workflows.md`
 - `backend/docs/n8n-apply-workflows-setup.md`
@@ -296,14 +305,14 @@ The final callback should mark the agent run as complete:
 
 ## Build
 
-Build frontend:
+Build the frontend:
 
 ```bash
 cd frontend
 npm run build
 ```
 
-Run backend:
+Run the backend in production mode:
 
 ```bash
 cd backend
@@ -312,26 +321,35 @@ npm start
 
 ## Security Notes
 
+This project handles CVs and API credentials, so treat configuration carefully:
+
 - Do not commit `.env` files.
-- Rotate any API key that was ever exposed publicly.
-- Keep `N8N_SHARED_SECRET` strong and private.
-- Use `/webhook/...` only for active n8n workflows.
-- Use `/webhook-test/...` only for manual testing.
-- Store uploaded CVs carefully; they contain personal data.
+- Do not commit uploaded CVs.
+- Rotate any API key that was accidentally shared.
+- Use a strong `JWT_SECRET`.
+- Use a strong `N8N_SHARED_SECRET`.
+- Keep production n8n workflows on `/webhook/...`.
+- Use `/webhook-test/...` only while manually testing.
 
-## Status
+## Current Status
 
-Current implemented workflow:
+Implemented:
 
-```txt
-CV upload
--> n8n workflow trigger
--> profile extraction
--> job search
--> job matching
--> company/recruiter email discovery
--> backend storage
--> frontend progress/results display
-```
+- CV upload
+- AI CV extraction workflow
+- Job search and matching workflow
+- Company/recruiter email discovery
+- Frontend workflow progress tracking
+- Match and email display in the market page
 
-Email auto-apply is intentionally separate from the main workflow and should only be enabled after Gmail OAuth, draft review, and user approval are fully verified.
+Planned or optional:
+
+- Gmail OAuth connection
+- User-reviewed application draft generation
+- Approved email sending through the user's Gmail account
+- Reply monitoring and status classification
+
+## License
+
+This project is currently shared as a portfolio and learning project. Add a license file before allowing external reuse.
+
