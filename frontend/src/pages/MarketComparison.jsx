@@ -4,7 +4,9 @@ import { motion } from "framer-motion";
 import {
   AlertCircle,
   Briefcase,
+  Building2,
   CheckCircle,
+  Mail,
   ExternalLink,
   FileText,
   Loader2,
@@ -22,6 +24,10 @@ import {
   getLatestResumeJobComparison,
   getResume,
 } from "../api/resumeApi";
+import {
+  discoverMatchedJobEmails,
+  getRecruitmentDashboard,
+} from "../api/recruitmentApi";
 
 const buttonBase =
   "inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition duration-200 focus:outline-none focus:ring-2 focus:ring-amber-300/45 disabled:cursor-not-allowed disabled:opacity-60";
@@ -131,6 +137,29 @@ const truncateText = (value, limit = 280) => {
   return `${text.slice(0, limit).trim()}...`;
 };
 
+const sameId = (left, right) => String(left || "") === String(right || "");
+
+const getResumeIdFromMatch = (match) => {
+  if (!match?.resume) return "";
+  if (typeof match.resume === "string") return match.resume;
+  return match.resume._id || match.resume.id || "";
+};
+
+const getContacts = (job) => (Array.isArray(job?.contacts) ? job.contacts : []);
+
+const averageScore = (items = [], selector = (item) => item) => {
+  const scores = items
+    .map(selector)
+    .map(Number)
+    .filter(Number.isFinite);
+
+  if (scores.length === 0) {
+    return null;
+  }
+
+  return Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+};
+
 const getAnalysis = (analysis) =>
   analysis?.marketAnalysis || analysis?.jobMarketAnalysis?.marketAnalysis || {};
 
@@ -166,6 +195,52 @@ const getRecommendedJobs = (analysis) => {
   });
 };
 
+const matchToOffer = (match = {}) => {
+  const job = match.job || {};
+  const contacts = getContacts(job);
+
+  return {
+    id: match._id || job._id,
+    title: job.title || "Matched job",
+    company: job.companyName || "Unknown company",
+    location: job.location?.raw || [job.location?.city, job.location?.country].filter(Boolean).join(", "),
+    employmentType: job.employmentType || "",
+    applyUrl: job.applyUrl || "",
+    description: job.description || "",
+    compatibilityScore: getPercentNumber(match.compatibilityScore),
+    successProbability: getPercentNumber(match.successProbability),
+    recommendation: match.recommendation || "",
+    rationale: match.aiRationale || asArray(match.reasons).join(" "),
+    matchingTechnologies: asArray(match.matchingTechnologies),
+    missingSkills: asArray(match.missingSkills),
+    contacts,
+    rawMatch: match,
+  };
+};
+
+const marketJobToOffer = (job = {}, index = 0) => {
+  const recommendation = job.recommendation || {};
+  const matchScore = recommendation.match_percentage;
+
+  return {
+    id: job.job_id || `market-${index}`,
+    title: job.job_title || "Job offer",
+    company: job.employer_name || "Unknown company",
+    location: job.location || "",
+    employmentType: job.employment_type || "",
+    applyUrl: job.apply_url || "",
+    description: job.description || "",
+    compatibilityScore: matchScore === undefined ? null : getPercentNumber(matchScore),
+    successProbability: null,
+    recommendation: "",
+    rationale: recommendation.why_good_fit || "",
+    matchingTechnologies: [],
+    missingSkills: [],
+    contacts: [],
+    rawJob: job,
+  };
+};
+
 function TextInput({ label, value, onChange, placeholder = "" }) {
   return (
     <label className="block">
@@ -192,13 +267,13 @@ function Metric({ icon: Icon, label, value, tone = "text-zinc-50" }) {
   );
 }
 
-function MatchOverview({ score, jobsCount, gapCount, bestJob, focusSkill }) {
+function MatchOverview({ score, scoreLabel = "Overall match", jobsCount, jobsLabel = "Jobs analyzed", gapCount, bestOffer, focusSkill }) {
   const scoreValue = getPercentNumber(score);
   const readiness =
     scoreValue >= 75 ? "Strong fit" : scoreValue >= 50 ? "Promising fit" : "Needs focused work";
   const focusLabel = focusSkill ? getItemLabel(focusSkill) : "No urgent gap";
-  const bestJobTitle = bestJob?.job_title || "No recommended offer yet";
-  const bestJobMatch = bestJob?.recommendation?.match_percentage;
+  const bestJobTitle = bestOffer?.title || "No recommended offer yet";
+  const bestJobMatch = bestOffer?.compatibilityScore;
 
   return (
     <section className={`${panelClass} overflow-hidden p-5 sm:p-6`}>
@@ -216,7 +291,7 @@ function MatchOverview({ score, jobsCount, gapCount, bestJob, focusSkill }) {
             </div>
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase text-zinc-500">Overall match</p>
+            <p className="text-xs font-semibold uppercase text-zinc-500">{scoreLabel}</p>
             <h2 className="mt-2 text-2xl font-semibold text-[#f7f5ef]">{readiness}</h2>
             <p className="mt-2 text-sm leading-6 text-zinc-400">
               Review the strongest signals, then build the roadmap for the missing skills.
@@ -226,7 +301,7 @@ function MatchOverview({ score, jobsCount, gapCount, bestJob, focusSkill }) {
 
         <div className="grid gap-3 md:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-            <p className="text-xs font-semibold uppercase text-zinc-500">Jobs analyzed</p>
+            <p className="text-xs font-semibold uppercase text-zinc-500">{jobsLabel}</p>
             <p className="mt-2 text-2xl font-semibold text-zinc-100">{jobsCount}</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
@@ -493,6 +568,9 @@ function MarketComparison() {
   const [loadingResume, setLoadingResume] = useState(true);
   const [loadingSavedAnalysis, setLoadingSavedAnalysis] = useState(true);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+  const [loadingRecruitment, setLoadingRecruitment] = useState(true);
+  const [discoveringEmails, setDiscoveringEmails] = useState(false);
+  const [recruitmentData, setRecruitmentData] = useState(null);
   const [hasSavedAnalysis, setHasSavedAnalysis] = useState(false);
   const [roadmapStatus, setRoadmapStatus] = useState("idle");
   const [showAllOffers, setShowAllOffers] = useState(false);
@@ -554,6 +632,23 @@ function MarketComparison() {
     };
   }, [handleRequestError, id]);
 
+  const loadRecruitmentData = useCallback(async () => {
+    setLoadingRecruitment(true);
+
+    try {
+      const data = await getRecruitmentDashboard();
+      setRecruitmentData(data);
+    } catch (err) {
+      setError(handleRequestError(err, "Could not load matched jobs and email discovery data."));
+    } finally {
+      setLoadingRecruitment(false);
+    }
+  }, [handleRequestError]);
+
+  useEffect(() => {
+    loadRecruitmentData();
+  }, [loadRecruitmentData]);
+
   useEffect(() => () => {
     if (roadmapTimerRef.current) {
       window.clearTimeout(roadmapTimerRef.current);
@@ -566,10 +661,28 @@ function MarketComparison() {
   const missingSkills = asArray(comparison.missing_skills);
   const roadmap = asArray(comparison.roadmap);
   const recommendedJobs = getRecommendedJobs(analysis);
+  const savedMatches = (recruitmentData?.matches || []).filter((match) =>
+    sameId(getResumeIdFromMatch(match), id)
+  );
+  const sortedSavedMatches = [...savedMatches].sort(
+    (left, right) => Number(right.compatibilityScore || 0) - Number(left.compatibilityScore || 0)
+  );
+  const savedMatchOffers = sortedSavedMatches.map(matchToOffer);
+  const marketOffers = recommendedJobs.map(marketJobToOffer);
+  const displayedOffers = savedMatchOffers.length > 0 ? savedMatchOffers : marketOffers;
+  const visibleOffers = displayedOffers.slice(0, showAllOffers ? 8 : 4);
+  const totalDiscoveredContacts = savedMatches.reduce(
+    (count, match) => count + getContacts(match.job).length,
+    0
+  );
   const marketTools = getMarketTools(market, comparison);
-  const visibleRecommendedJobs = recommendedJobs.slice(0, showAllOffers ? 8 : 4);
-  const jobsAnalyzedCount = analysis?.count || market.jobs_analyzed_count || 0;
-  const bestRecommendedJob = recommendedJobs[0] || null;
+  const jobsAnalyzedCount = savedMatchOffers.length || analysis?.count || market.jobs_analyzed_count || 0;
+  const overviewScore = savedMatchOffers.length > 0
+    ? averageScore(savedMatchOffers, (offer) => offer.compatibilityScore)
+    : comparison.overall_match_percentage;
+  const overviewScoreLabel = savedMatchOffers.length > 0 ? "Average match" : "Overall match";
+  const jobsLabel = savedMatchOffers.length > 0 ? "Saved matches" : "Jobs analyzed";
+  const bestOffer = displayedOffers[0] || null;
   const firstMissingSkill = missingSkills[0] || null;
   const matchedSkillCount = uniqueLabels(comparison.matched_skills).length;
   const marketToolCount = uniqueLabels(marketTools).length;
@@ -620,6 +733,33 @@ function MarketComparison() {
       setError(handleRequestError(err, "Could not compare this CV with job offers."));
     } finally {
       setLoadingAnalysis(false);
+    }
+  };
+
+  const handleDiscoverEmails = async () => {
+    if (!id) return;
+
+    setDiscoveringEmails(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const data = await discoverMatchedJobEmails({
+        resumeId: id,
+        limit: 10,
+        hunterLimit: 10,
+      });
+
+      await loadRecruitmentData();
+      setSuccess(
+        data.contactsCount > 0
+          ? `${data.contactsCount} recruiter emails found from ${data.jobsChecked} matched jobs.`
+          : `Email discovery checked ${data.jobsChecked} matched jobs but found no contacts yet.`
+      );
+    } catch (err) {
+      setError(handleRequestError(err, "Could not discover company emails for these matched jobs."));
+    } finally {
+      setDiscoveringEmails(false);
     }
   };
 
@@ -685,6 +825,19 @@ function MarketComparison() {
                 )}
                 {hasSavedAnalysis ? "Refresh Comparison" : "Create Comparison"}
               </button>
+              <button
+                type="button"
+                onClick={handleDiscoverEmails}
+                disabled={loadingRecruitment || discoveringEmails}
+                className={`${subtleButton} h-11`}
+              >
+                {discoveringEmails ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Mail size={16} />
+                )}
+                Discover company emails
+              </button>
               <Link to="/resumes" className={`${subtleButton} h-11`}>
                 Edit CV Data
               </Link>
@@ -734,7 +887,7 @@ function MarketComparison() {
               </p>
             </div>
           </section>
-        ) : !analysis ? (
+        ) : !analysis && savedMatches.length === 0 ? (
           <section className={`${panelClass} mt-5 flex min-h-[22rem] items-center justify-center p-8 text-center`}>
             <div>
               <Target size={38} className="mx-auto text-zinc-500" />
@@ -748,21 +901,106 @@ function MarketComparison() {
           </section>
         ) : (
           <div className="mt-5 space-y-5">
-            {analysis.analysisWarning && (
+            {analysis?.analysisWarning && (
               <div className="rounded-2xl border border-amber-300/25 bg-amber-300/[0.08] p-4 text-sm leading-6 text-amber-100">
                 {analysis.analysisWarning}
               </div>
             )}
 
             <MatchOverview
-              score={comparison.overall_match_percentage}
+              score={overviewScore}
+              scoreLabel={overviewScoreLabel}
               jobsCount={jobsAnalyzedCount}
+              jobsLabel={jobsLabel}
               gapCount={missingSkills.length}
-              bestJob={bestRecommendedJob}
+              bestOffer={bestOffer}
               focusSkill={firstMissingSkill}
             />
 
             <div className="space-y-5">
+              <ScrollPanel
+                title="Matched Jobs and Company Emails"
+                icon={Mail}
+                action={
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-semibold text-zinc-300">
+                      {savedMatches.length} matches
+                    </span>
+                    <span className="rounded-full border border-amber-300/20 bg-amber-300/[0.08] px-3 py-1 text-xs font-semibold text-amber-100">
+                      {totalDiscoveredContacts} emails
+                    </span>
+                  </div>
+                }
+              >
+                {loadingRecruitment ? (
+                  <div className="flex items-center gap-3 text-sm text-zinc-400">
+                    <Loader2 size={16} className="animate-spin" />
+                    Loading saved matches...
+                  </div>
+                ) : savedMatches.length === 0 ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-zinc-400">
+                    No saved matched jobs are available for this CV yet. Uploading a CV starts the n8n workflow; when the matching step finishes, matches will appear here and email discovery can check their company domains.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {savedMatchOffers.map((offer) => {
+                      const contacts = offer.contacts;
+
+                      return (
+                        <article
+                          key={offer.id}
+                          className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold leading-5 text-zinc-100">
+                                {offer.title}
+                              </p>
+                              <p className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
+                                <Building2 size={13} />
+                                {offer.company}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+                              <span className="w-fit rounded-full border border-amber-300/25 bg-amber-300/[0.08] px-3 py-1 text-xs font-bold text-amber-100">
+                                Match {formatPercent(offer.compatibilityScore)}
+                              </span>
+                              <span className="w-fit rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-bold text-zinc-300">
+                                Success {formatPercent(offer.successProbability)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {contacts.length > 0 ? (
+                            <div className="mt-4 grid gap-2 md:grid-cols-2">
+                              {contacts.slice(0, 4).map((contact) => (
+                                <div
+                                  key={contact.email}
+                                  className="rounded-xl border border-white/10 bg-black/20 p-3"
+                                >
+                                  <p className="break-all text-sm font-semibold text-zinc-100">
+                                    {contact.email}
+                                  </p>
+                                  <p className="mt-1 text-xs text-zinc-500">
+                                    {[contact.fullName, contact.position, contact.source]
+                                      .filter(Boolean)
+                                      .join(" - ") || "Discovered contact"}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-zinc-500">
+                              No email discovered for this company yet.
+                            </p>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </ScrollPanel>
+
               <ScrollPanel
                 title="Skills and Market Signals"
                 icon={TrendingUp}
@@ -836,38 +1074,37 @@ function MarketComparison() {
                 icon={Briefcase}
                 action={
                   <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-semibold text-zinc-300">
-                    Showing {visibleRecommendedJobs.length} of {recommendedJobs.length}
+                    Showing {visibleOffers.length} of {displayedOffers.length}
                   </span>
                 }
               >
-                {recommendedJobs.length === 0 ? (
+                {displayedOffers.length === 0 ? (
                   <p className="text-sm text-zinc-500">No offers were returned for this search.</p>
                 ) : (
                   <div className="space-y-3">
-                    {visibleRecommendedJobs.map((job, index) => {
-                      const recommendation = job.recommendation || {};
-                      const match = recommendation.match_percentage;
+                    {visibleOffers.map((offer, index) => {
+                      const match = offer.compatibilityScore;
                       const matchNumber = getPercentNumber(match);
 
                       return (
-                        <article key={`${job.job_id || index}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 transition duration-200 hover:border-amber-300/25 hover:bg-white/[0.055]">
+                        <article key={`${offer.id || index}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 transition duration-200 hover:border-amber-300/25 hover:bg-white/[0.055]">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="text-sm font-semibold leading-5 text-zinc-100">
-                                {job.job_title || "Job offer"}
+                                {offer.title}
                               </p>
                               <p className="mt-1 text-xs text-zinc-500">
-                                {job.employer_name || "Unknown company"}
+                                {offer.company}
                               </p>
                             </div>
-                            {match !== undefined && (
+                            {match !== null && match !== undefined && (
                               <span className="shrink-0 rounded-full border border-amber-300/25 bg-amber-300/[0.08] px-3 py-1 text-xs font-bold text-amber-100">
                                 {formatPercent(match)}
                               </span>
                             )}
                           </div>
 
-                          {match !== undefined && (
+                          {match !== null && match !== undefined && (
                             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
                               <div
                                 className="h-full rounded-full bg-amber-300"
@@ -876,20 +1113,25 @@ function MarketComparison() {
                             </div>
                           )}
 
-                          {(job.location || job.employment_type) && (
+                          {(offer.location || offer.employmentType) && (
                             <p className="mt-3 inline-flex items-center gap-1 text-xs text-zinc-400">
                               <MapPin size={13} />
-                              {[job.location, job.employment_type].filter(Boolean).join(" - ")}
+                              {[offer.location, offer.employmentType].filter(Boolean).join(" - ")}
                             </p>
                           )}
-                          {recommendation.why_good_fit && (
+                          {offer.rationale && (
                             <p className="mt-3 text-sm leading-6 text-zinc-300">
-                              {truncateText(recommendation.why_good_fit)}
+                              {truncateText(offer.rationale)}
                             </p>
                           )}
-                          {job.apply_url && (
+                          {offer.matchingTechnologies.length > 0 && (
+                            <div className="mt-3">
+                              <PillList items={offer.matchingTechnologies} limit={8} empty="" />
+                            </div>
+                          )}
+                          {offer.applyUrl && (
                             <a
-                              href={job.apply_url}
+                              href={offer.applyUrl}
                               target="_blank"
                               rel="noreferrer"
                               className={`${subtleButton} mt-4 h-9 px-3 text-xs`}
@@ -901,13 +1143,13 @@ function MarketComparison() {
                         </article>
                       );
                     })}
-                    {recommendedJobs.length > 4 && (
+                    {displayedOffers.length > 4 && (
                       <button
                         type="button"
                         onClick={() => setShowAllOffers((value) => !value)}
                         className={`${subtleButton} h-10 w-full`}
                       >
-                        {showAllOffers ? "Show fewer offers" : `Show ${Math.min(recommendedJobs.length, 8) - 4} more offers`}
+                        {showAllOffers ? "Show fewer offers" : `Show ${Math.min(displayedOffers.length, 8) - 4} more offers`}
                       </button>
                     )}
                   </div>

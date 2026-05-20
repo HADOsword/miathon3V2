@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -17,6 +17,7 @@ import AmbientBackground from "../components/landing/AmbientBackground";
 import AppNavbar from "../components/AppNavbar";
 import { getApiErrorMessage, isUnauthorizedError } from "../api/client";
 import { uploadCV } from "../api/cvApi";
+import { getRecruitmentDashboard } from "../api/recruitmentApi";
 
 const formatFileSize = (bytes) => `${(bytes / 1024).toFixed(1)} KB`;
 const maxFileSize = 5 * 1024 * 1024;
@@ -37,6 +38,7 @@ const uploadSteps = [
 const getFileExtension = (name = "") => name.split(".").pop()?.toLowerCase() || "";
 const isQueuedN8nUpload = (result) =>
     result?.resume?.processingStatus !== "PROFILE_EXTRACTED" && result?.n8n?.triggered;
+const terminalRunStatuses = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function CVUpload() {
     const navigate = useNavigate();
@@ -45,8 +47,67 @@ function CVUpload() {
     const [dragActive, setDragActive] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null);
     const [uploading, setUploading] = useState(false);
+    const [waitingWorkflow, setWaitingWorkflow] = useState(false);
+    const [workflowRun, setWorkflowRun] = useState(null);
     const [error, setError] = useState("");
     const [saveResult, setSaveResult] = useState(null);
+
+    useEffect(() => {
+        const agentRunId = saveResult?.agentRun?._id;
+
+        if (!agentRunId || !isQueuedN8nUpload(saveResult)) {
+            setWaitingWorkflow(false);
+            return undefined;
+        }
+
+        let isMounted = true;
+        let pollTimer;
+        let attempts = 0;
+        const maxAttempts = 40;
+
+        const pollWorkflow = async () => {
+            attempts += 1;
+            setWaitingWorkflow(true);
+
+            try {
+                const data = await getRecruitmentDashboard();
+                if (!isMounted) return;
+
+                const run = (data.agentRuns || []).find((item) => item._id === agentRunId);
+
+                if (run) {
+                    setWorkflowRun(run);
+
+                    if (terminalRunStatuses.has(run.status) || attempts >= maxAttempts) {
+                        setWaitingWorkflow(false);
+                        return;
+                    }
+                }
+
+                pollTimer = window.setTimeout(pollWorkflow, 3000);
+            } catch (err) {
+                if (!isMounted) return;
+
+                if (isUnauthorizedError(err)) {
+                    navigate("/login", { replace: true });
+                    return;
+                }
+
+                setError(getApiErrorMessage(err, "Could not check workflow progress."));
+                setWaitingWorkflow(false);
+            }
+        };
+
+        pollWorkflow();
+
+        return () => {
+            isMounted = false;
+
+            if (pollTimer) {
+                window.clearTimeout(pollTimer);
+            }
+        };
+    }, [navigate, saveResult]);
 
     const handleDrag = (e) => {
         e.preventDefault();
@@ -125,6 +186,8 @@ function CVUpload() {
     const handleReset = () => {
         setSelectedFile(null);
         setSaveResult(null);
+        setWorkflowRun(null);
+        setWaitingWorkflow(false);
         setError("");
 
         if (fileInputRef.current) {
@@ -134,6 +197,12 @@ function CVUpload() {
 
     const savedFileName =
         saveResult?.resume?.originalFileName || selectedFile?.name || "CV file";
+    const savedResumeId = saveResult?.resume?._id || saveResult?.resume?.id || "";
+    const currentRun = workflowRun || saveResult?.agentRun || null;
+    const currentRunStatus = currentRun?.status || (isQueuedN8nUpload(saveResult) ? "QUEUED" : "COMPLETED");
+    const workflowFinished = !isQueuedN8nUpload(saveResult) || terminalRunStatuses.has(currentRunStatus);
+    const workflowFailed = ["FAILED", "CANCELLED"].includes(currentRunStatus);
+    const workflowProgress = Math.max(0, Math.min(100, Number(currentRun?.progress || 0)));
 
     if (saveResult) {
         return (
@@ -155,13 +224,47 @@ function CVUpload() {
                                 <CheckCircle size={34} />
                             </div>
                             <h1 className="mt-5 text-2xl font-semibold text-[#f7f5ef] sm:text-3xl">
-                                {isQueuedN8nUpload(saveResult) ? "CV uploaded and analysis started" : "CV analyzed and saved"}
+                                {workflowFailed
+                                    ? "CV uploaded, workflow needs attention"
+                                    : workflowFinished
+                                      ? "Workflow finished"
+                                      : "CV uploaded, workflow running"}
                             </h1>
                             <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-zinc-400">
-                                {isQueuedN8nUpload(saveResult)
-                                    ? `${savedFileName} is stored. n8n is finishing the extraction and market analysis in the background.`
-                                    : `${savedFileName} is stored with its extracted analysis in your resume records.`}
+                                {workflowFailed
+                                    ? `${savedFileName} is stored, but the n8n workflow ended with status ${currentRunStatus}. Check n8n or the backend agent run logs.`
+                                    : workflowFinished
+                                      ? `${savedFileName} is stored and the workflow has finished. You can now review matches and discovered company emails.`
+                                      : `${savedFileName} is stored. Please wait while n8n finishes the full workflow.`}
                             </p>
+
+                            <div className="mx-auto mt-6 max-w-2xl rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-left">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-zinc-500">
+                                            Workflow status
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold text-zinc-100">
+                                            {currentRunStatus}
+                                        </p>
+                                    </div>
+                                    {waitingWorkflow && (
+                                        <span className="inline-flex items-center gap-2 text-sm font-semibold text-amber-100">
+                                            <Loader2 size={16} className="animate-spin" />
+                                            Waiting for n8n
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/[0.08]">
+                                    <div
+                                        className="h-full rounded-full bg-amber-300 transition-all"
+                                        style={{ width: `${workflowFinished ? 100 : workflowProgress}%` }}
+                                    />
+                                </div>
+                                <p className="mt-3 text-sm leading-6 text-zinc-400">
+                                    {currentRun?.currentStep || "Waiting for workflow progress..."}
+                                </p>
+                            </div>
 
                             <div className="mx-auto mt-7 grid max-w-2xl gap-3 sm:grid-cols-3">
                                 {uploadSteps.map(({ label, icon: Icon }) => (
@@ -204,11 +307,21 @@ function CVUpload() {
                                     Upload Another CV
                                 </button>
                                 <Link
-                                    to="/resumes"
-                                    className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-amber-300/30 bg-amber-300/10 px-5 text-sm font-semibold text-amber-100 transition hover:-translate-y-0.5 hover:border-amber-200/60 hover:bg-amber-300/15"
+                                    to={savedResumeId ? `/resumes/${savedResumeId}/market` : "/market"}
+                                    aria-disabled={!workflowFinished || workflowFailed}
+                                    onClick={(event) => {
+                                        if (!workflowFinished || workflowFailed) {
+                                            event.preventDefault();
+                                        }
+                                    }}
+                                    className={`inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-amber-300/30 bg-amber-300/10 px-5 text-sm font-semibold text-amber-100 transition hover:-translate-y-0.5 hover:border-amber-200/60 hover:bg-amber-300/15 ${
+                                        !workflowFinished || workflowFailed
+                                            ? "pointer-events-none opacity-50"
+                                            : ""
+                                    }`}
                                 >
-                                    <FileText size={17} />
-                                    Manage Data
+                                    <Sparkles size={17} />
+                                    Open Results
                                     <ArrowRight size={16} />
                                 </Link>
                                 <Link

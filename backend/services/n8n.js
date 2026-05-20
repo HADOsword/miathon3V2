@@ -37,6 +37,28 @@ const isUnregisteredWebhookError = (response, data) => {
   return response.status === 404 && message.includes("webhook") && message.includes("not registered");
 };
 
+const parseResponseBody = async (response) => {
+  const text = await response.text().catch(() => "");
+
+  if (!text) {
+    return { data: {}, text: "" };
+  }
+
+  try {
+    return { data: JSON.parse(text), text };
+  } catch {
+    return { data: {}, text };
+  }
+};
+
+const getN8nErrorMessage = (data = {}, text = "") =>
+  data.message ||
+  data.msg ||
+  data.error?.message ||
+  data.error ||
+  text ||
+  "";
+
 const signPayload = (payload) => {
   const secret = getSharedSecret();
 
@@ -107,7 +129,7 @@ const triggerWorkflow = async (workflow, payload) => {
     };
   }
 
-  const data = await response.json().catch(() => ({}));
+  const { data, text } = await parseResponseBody(response);
 
   if (!response.ok) {
     if (isUnregisteredWebhookError(response, data)) {
@@ -119,7 +141,16 @@ const triggerWorkflow = async (workflow, payload) => {
       };
     }
 
-    const error = new Error(data.message || data.msg || `n8n workflow ${workflow} failed to start.`);
+    const n8nMessage = getN8nErrorMessage(data, text);
+
+    console.error("n8n workflow trigger failed", {
+      workflow,
+      url,
+      status: response.status,
+      response: n8nMessage,
+    });
+
+    const error = new Error(n8nMessage || `n8n workflow ${workflow} failed to start.`);
     error.statusCode = response.status >= 500 ? 502 : response.status;
     error.expose = response.status < 500;
     throw error;
